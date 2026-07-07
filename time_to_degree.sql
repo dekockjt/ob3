@@ -1,8 +1,5 @@
--- first program term
--- time to degree in weeks, not divisible by 15, means include summer
-
--- UPDATE ROBNYUD FIELDS 196-200 FOR LEGACY BORROWERS (OB3)
--- Written by SFS Justin DeKock 06/11/2026, updated 06/22/2026, updated added CIPC_CODE 06/30/2026
+-- calculate time to degree for legacy purposes
+-- assume fall start if it's a summer
 
 with term as (
     select '202700' as t from dual
@@ -12,20 +9,50 @@ with term as (
         a.sgbstdn_levl_code as student_level,
         a.sgbstdn_majr_code_1 as major_code,
         a.sgbstdn_degc_code_1 as degree_code,
+        a.sgbstdn_program_1 as prog_code,
         m.stvmajr_cipc_code as cipc_code,
-        case a.sgbstdn_levl_code when 'UG' then (
-            select min(z.sgbstdn_term_code_eff)
-            from sgbstdn z
-            where z.sgbstdn_pidm = a.sgbstdn_pidm
-            and z.sgbstdn_levl_code = a.sgbstdn_levl_code
-            and z.sgbstdn_degc_code_1 = a.sgbstdn_degc_code_1
-        ) else (
-            select min(z.sgbstdn_term_code_eff)
-            from sgbstdn z
-            where z.sgbstdn_pidm = a.sgbstdn_pidm
-            and z.sgbstdn_degc_code_1 = a.sgbstdn_degc_code_1
-            and z.sgbstdn_majr_code_1 = a.sgbstdn_majr_code_1
-        )
+        -- first term not matching legacy codes OR first term showing transfer
+        -- ug uses levl and degc, others use majr and degc
+        case a.sgbstdn_levl_code 
+            when 'UG' then (
+                select min(z.sgbstdn_term_code_eff)
+                from sgbstdn z
+                where z.sgbstdn_pidm = a.sgbstdn_pidm
+                and z.sgbstdn_levl_code = a.sgbstdn_levl_code
+                and z.sgbstdn_degc_code_1 = a.sgbstdn_degc_code_1
+                and z.sgbstdn_term_code_eff >= nvl((
+                    select max(y.sgbstdn_term_code_eff)
+                    from sgbstdn y
+                    where y.sgbstdn_pidm = a.sgbstdn_pidm
+                    and y.sgbstdn_term_code_eff <= a.sgbstdn_term_code_eff
+                    and (
+                        not (
+                            y.sgbstdn_levl_code = a.sgbstdn_levl_code
+                            and y.sgbstdn_degc_code_1 = a.sgbstdn_degc_code_1
+                        ) 
+                        or y.sgbstdn_styp_code = 'T'
+                    )
+                ), '000000')
+            ) else (
+                select min(z.sgbstdn_term_code_eff)
+                from sgbstdn z
+                where z.sgbstdn_pidm = a.sgbstdn_pidm
+                and z.sgbstdn_degc_code_1 = a.sgbstdn_degc_code_1
+                and z.sgbstdn_majr_code_1 = a.sgbstdn_majr_code_1
+                and z.sgbstdn_term_code_eff >= nvl((
+                    select max(y.sgbstdn_term_code_eff)
+                    from sgbstdn y
+                    where y.sgbstdn_pidm = a.sgbstdn_pidm
+                    and y.sgbstdn_term_code_eff <= a.sgbstdn_term_code_eff
+                    and (
+                        not (
+                            y.sgbstdn_majr_code_1 = a.sgbstdn_majr_code_1
+                            and y.sgbstdn_degc_code_1 = a.sgbstdn_degc_code_1
+                        ) 
+                        or y.sgbstdn_styp_code = 'T'
+                    )
+                ), '000000')
+            )
         end as first_term
     from sgbstdn a
     join stvmajr m on m.stvmajr_code = a.sgbstdn_majr_code_1
@@ -44,51 +71,30 @@ with term as (
     from sfrstcr
     where sfrstcr_term_code in ('202620', '202700')
     and sfrstcr_bill_hr > 0
-), legacy_yn as (
-    select rcrlds4_pidm as pidm, rcrlds4_ln_limit_except_flg as flg
-    from rcrlds4
-    where rcrlds4_aidy_code = '2627'
-    and rcrlds4_infc_code = 'EDE'
-    and rcrlds4_curr_rec_ind = 'Y'
+), awards as (
+    select rp.rpratrm_pidm as pidm, rp.rpratrm_term_code as term
+    from rpratrm rp
+    inner join rfrbase rb on rb.rfrbase_fund_code = rp.rpratrm_fund_code
+    where rb.rfrbase_fsrc_code = 'FEDR'
+    and rb.rfrbase_ftyp_code = 'LOAN'
+    and rp.rpratrm_paid_amt > 0
 )
 select
     a.pidm,
     s.spriden_id as student_id,
-    l.flg as legacy_rcrlds4,
-    'Y' as legacy,
     a.student_level,
     a.major_code,
     a.degree_code, 
+    a.prog_code,
     a.cipc_code,
     a.first_term
 from stu a
 join hours b on b.pidm = a.pidm
 join spriden s on s.spriden_pidm = a.pidm and s.spriden_change_ind is null
-left join legacy_yn l on l.pidm = a.pidm
-where (
-    a.student_level = 'UG'
-    and exists (
-        select 1
-        from rpratrm rp
-        inner join rfrbase rb on rb.rfrbase_fund_code = rp.rpratrm_fund_code
-        where rp.rpratrm_pidm = a.pidm
-        and rp.rpratrm_term_code between a.first_term and (select t from term)
-        and rb.rfrbase_fsrc_code = 'FEDR'
-        and rb.rfrbase_ftyp_code = 'LOAN'
-        and rp.rpratrm_paid_amt > 0
-    )
-) or (
-    a.student_level <> 'UG'
-    and exists (
-        select 1
-        from rpratrm rp
-        inner join rfrbase rb on rb.rfrbase_fund_code = rp.rpratrm_fund_code
-        where rp.rpratrm_pidm = a.pidm
-        and rp.rpratrm_term_code between a.first_term and (select t from term)
-        and rb.rfrbase_fsrc_code = 'FEDR'
-        and rb.rfrbase_ftyp_code = 'LOAN'
-        and rp.rpratrm_paid_amt > 0
-    )
+where exists (
+    select 1 from awards r
+    where r.pidm = a.pidm
+    and r.term between a.first_term and (select t from term)
 )
-
+  
 ;
