@@ -78,6 +78,11 @@ with term as (
     where rb.rfrbase_fsrc_code = 'FEDR'
     and rb.rfrbase_ftyp_code = 'LOAN'
     and rp.rpratrm_paid_amt > 0
+), terms_hours as (
+    select sfrstcr_pidm as pidm, sfrstcr_term_code as term, sum(sfrstcr_bill_hr) as hrs from sfrstcr
+    where sfrstcr_bill_hr > 0
+    and substr(sfrstcr_term_code, 5, 2) <> '00'
+    group by sfrstcr_pidm, sfrstcr_term_code
 )
 select
     a.pidm,
@@ -87,7 +92,8 @@ select
     a.degree_code, 
     a.prog_code,
     a.cipc_code,
-    a.first_term
+    a.first_term,
+    (select count(term) from terms_hours where pidm = a.pidm and term between a.first_term and (select t from term)) as terms_enrolled
 from stu a
 join hours b on b.pidm = a.pidm
 join spriden s on s.spriden_pidm = a.pidm and s.spriden_change_ind is null
@@ -96,5 +102,14 @@ where exists (
     where r.pidm = a.pidm
     and r.term between a.first_term and (select t from term)
 )
-  
+-- and spriden_id = '000416971' 
 ;
+
+desc stvstyp;
+select stvstyp_code, stvstyp_desc
+from stvstyp
+group by stvstyp_code, stvstyp_desc;
+    
+select sfrstcr_pidm as pidm, sfrstcr_term_code as term, sum(sfrstcr_bill_hr) as hrs from sfrstcr
+where sfrstcr_bill_hr > 0
+group by sfrstcr_pidm, sfrstcr_term_code;
