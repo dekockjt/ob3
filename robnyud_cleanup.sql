@@ -14,3 +14,12 @@ or robnyud_value_196 is not null
 or robnyud_value_197 is not null
 or robnyud_value_198 is not null
 or robnyud_value_199 is not null;
+
+select * from robnyud
+where robnyud_value_193 is not null 
+or robnyud_value_194 is not null 
+or robnyud_value_195 is not null
+or robnyud_value_196 is not null
+or robnyud_value_197 is not null
+or robnyud_value_198 is not null
+or robnyud_value_199 is not null;
